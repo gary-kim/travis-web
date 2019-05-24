@@ -6,7 +6,6 @@ import { reads, or, notEmpty } from '@ember/object/computed';
 import { inject as service } from '@ember/service';
 import config from 'travis/config/environment';
 import dynamicQuery from 'travis/utils/dynamic-query';
-import { task } from 'ember-concurrency';
 
 const { profileReposPerPage: limit } = config.pagination;
 
@@ -14,8 +13,8 @@ export default Model.extend({
   features: service(),
   accounts: service(),
   raven: service(),
-  ajax: service(),
   store: service(),
+  tasks: service(),
 
   name: attr('string'),
   login: attr('string'),
@@ -64,16 +63,15 @@ export default Model.extend({
   },
 
   fetchBetaMigrationRequests() {
-    return this.fetchBetaMigrationRequestsTask.perform();
+    return this.tasks.fetchBetaMigrationRequestsTask.perform();
   },
 
-  fetchBetaMigrationRequestsTask: task(function* () {
-    const data = yield this.ajax.getV3(`/user/${this.accounts.user.id}/beta_migration_requests`);
-    this.store.pushPayload('beta-migration-request', data);
-    return this.store.peekAll('beta-migration-request');
+  migrationBetaRequests: computed('tasks.fetchBetaMigrationRequestsTask.lastSuccessful.value.[]', 'id', function () {
+    const requests = this.tasks.fetchBetaMigrationRequestsTask.get('lastSuccessful.value') || [];
+    return requests.filter(request =>
+      this.isUser && request.ownerId == this.id || request.organizations.mapBy('id').includes(this.id)
+    );
   }),
-
-  migrationBetaRequests: reads('fetchBetaMigrationRequestsTask.lastSuccessful.value'),
 
   isMigrationBetaRequested: notEmpty('migrationBetaRequests'),
 
