@@ -2,10 +2,11 @@ import Model from 'ember-data/model';
 import attr from 'ember-data/attr';
 import { belongsTo } from 'ember-data/relationships';
 import { computed } from '@ember/object';
-import { reads, or } from '@ember/object/computed';
+import { reads, or, notEmpty } from '@ember/object/computed';
 import { inject as service } from '@ember/service';
 import config from 'travis/config/environment';
 import dynamicQuery from 'travis/utils/dynamic-query';
+import { task } from 'ember-concurrency';
 
 const { profileReposPerPage: limit } = config.pagination;
 
@@ -13,6 +14,8 @@ export default Model.extend({
   features: service(),
   accounts: service(),
   raven: service(),
+  ajax: service(),
+  store: service(),
 
   name: attr('string'),
   login: attr('string'),
@@ -27,6 +30,8 @@ export default Model.extend({
   subscriptionPermissions: attr(),
 
   installation: belongsTo('installation', { async: false }),
+
+  title: or('name', 'login'),
 
   githubAppsRepositories: dynamicQuery(function* ({ page = 1, filter = '' }) {
     return yield this.fetchRepositories({ page, filter, ghApps: true, activeOnOrg: false });
@@ -57,6 +62,25 @@ export default Model.extend({
       limit, offset, custom: { owner, type, },
     }, { live: false });
   },
+
+  fetchBetaMigrationRequests() {
+    return this.fetchBetaMigrationRequestsTask.perform();
+  },
+
+  fetchBetaMigrationRequestsTask: task(function* () {
+    const data = yield this.ajax.getV3(`/user/${this.accounts.user.id}/beta_migration_requests`);
+    this.store.pushPayload('beta-migration-request', data);
+    return this.store.peekAll('beta-migration-request');
+  }),
+
+  migrationBetaRequests: reads('fetchBetaMigrationRequestsTask.lastSuccessful.value'),
+
+  isMigrationBetaRequested: notEmpty('migrationBetaRequests'),
+
+  isMigrationBetaAccepted: computed('migrationBetaRequests.@each.acceptedAt', function () {
+    const migrationBetaRequests = this.migrationBetaRequests || [];
+    return migrationBetaRequests.isAny('acceptedAt');
+  }),
 
   subscriptionError: reads('accounts.subscriptionError'),
 
